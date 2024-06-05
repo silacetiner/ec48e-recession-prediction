@@ -1,0 +1,438 @@
+---
+title: "EC48E Project Threshold=0.15"
+author: "Bülent Can Solakarı"
+date: '2024-06-02'
+output: html_document
+---
+
+```{r}
+library(corrr)
+library(ggplot2)
+library(factoextra)
+library(caret)
+library(pROC)
+library(ROCR)
+
+one_year_monthly_all <- read.csv("1year_monthly_all.csv")  #### one year monthly average treasury yields
+
+three_year_monthly_all <- read.csv("3year_monthly_all.csv") #### three year monthly average treasury yields
+
+ten_year_monthly_all <- read.csv("10year_monthly_all.csv") #### ten year monthly average treasury yields
+
+tenyear_fed_spread <- read.csv("T10YFF_all.csv") #### ten year monthly average treasury yields minus federal funds rate
+
+one_year_fed_spread <- read.csv("1year_monthly_fed_all.csv") #### one year monthly average treasury yields minus federal funds rate
+
+six_month_fed_spread <- read.csv("6month_monthly_fed_all.csv") #### six months average treasury yields minus federal funds rate
+
+three_month_fed_spread <- read.csv("3month_monthly_fed_all.csv") #### three months monthly average treasury yields minus federal funds rate
+
+recessions <- read.csv("USREC_ALL.csv") ##### binary recession data
+
+```
+
+```{r}
+#### SPREADS AND TRAIN TEST DATA SETS FROM JANUARY 1962 TO DECECEMBER 1998 FOR TRAINING AND FROM JANUARY 1999 TO DECEMBER 2019 FOR TESTING
+ten_to_three_spread <- ten_year_monthly_all[,2] - three_year_monthly_all[,2] ##### ten year to three year spread
+
+ten_to_one_spread <- ten_year_monthly_all[,2] - one_year_monthly_all[,2] ##### ten year to one year spread
+
+tenyear_fed_spread
+
+```
+
+```{r}
+spread_df <- data.frame(
+  Ten_to_Three_Spread = ten_to_three_spread,
+  Ten_to_One_Spread = ten_to_one_spread,
+  Ten_to_FED = tenyear_fed_spread[,2]
+) ###### spread data with ten year spreads
+```
+
+
+```{r}
+##### THEREAFTER, NUMBER NEXT TO "T" REFERS TO THE MONTHS BY WHICH THE DATA SET OR THE MODEL IS LAGGED
+
+train_data_t12 <- as.data.frame(cbind(spread_df[1:432,],recessions[13:444,2])) 
+train_data_t15 <- as.data.frame(cbind(spread_df[1:429,],recessions[16:444,2]))
+train_data_t18 <- as.data.frame(cbind(spread_df[1:426,],recessions[19:444,2]))
+train_data_t21 <- as.data.frame(cbind(spread_df[1:423,],recessions[22:444,2]))
+train_data_t24 <- as.data.frame(cbind(spread_df[1:420,],recessions[25:444,2]))
+
+test_data_t12 <-as.data.frame(cbind(spread_df[433:684,],recessions[445:696,2]))
+test_data_t15 <-as.data.frame(cbind(spread_df[430:681,],recessions[445:696,2]))
+test_data_t18 <-as.data.frame(cbind(spread_df[427:678,],recessions[445:696,2]))
+test_data_t21 <-as.data.frame(cbind(spread_df[424:675,],recessions[445:696,2]))
+test_data_t24 <-as.data.frame(cbind(spread_df[421:672,],recessions[445:696,2]))
+
+
+colnames(train_data_t12)<- cbind("TENTOTHREE","TENTOONE","TENTOFED","RECESSIONS")
+colnames(train_data_t15)<- cbind("TENTOTHREE","TENTOONE","TENTOFED","RECESSIONS")
+colnames(train_data_t18)<- cbind("TENTOTHREE","TENTOONE","TENTOFED","RECESSIONS")
+colnames(train_data_t21)<- cbind("TENTOTHREE","TENTOONE","TENTOFED","RECESSIONS")
+colnames(train_data_t24)<- cbind("TENTOTHREE","TENTOONE","TENTOFED","RECESSIONS")
+
+colnames(test_data_t12) <- c("TENTOTHREE","TENTOONE","TENTOFED","RECESSIONS")
+colnames(test_data_t15) <- c("TENTOTHREE","TENTOONE","TENTOFED", "RECESSIONS")
+colnames(test_data_t18) <- c("TENTOTHREE","TENTOONE","TENTOFED","RECESSIONS")
+colnames(test_data_t21) <- c("TENTOTHREE","TENTOONE","TENTOFED","RECESSIONS")
+colnames(test_data_t24) <- c("TENTOTHREE","TENTOONE","TENTOFED","RECESSIONS")
+```
+
+
+```{r}
+spread_df_all <- data.frame(
+  One_Year_To_Fed  = one_year_fed_spread[,2],
+  Six_Month_to_Fed = six_month_fed_spread[,2],
+  Three_Month_to_Fed = three_month_fed_spread[,2],
+  Ten_to_Three_Year = ten_to_three_spread,
+  Ten_to_One_Year = ten_to_one_spread,
+  Ten_Year_to_Fed = tenyear_fed_spread[,2]
+) ##### spread data with 6 different spreads
+
+ggcorrplot::ggcorrplot(cor(spread_df_all)) ##### Correlation Matrix For Our Spreads
+
+pca_spreads_all <- prcomp(spread_df_all,scale=T) 
+
+fviz_eig(pca_spreads_all,addlabels = T) ##### Percentage of variance explained by each Principal Component
+```
+
+
+```{r}
+train_data_t12_all <- as.data.frame(cbind(spread_df_all[1:432,],recessions[13:444,2],pca_spreads_all$x[1:432,1:3]))
+train_data_t15_all <- as.data.frame(cbind(spread_df_all[1:429,],recessions[16:444,2],pca_spreads_all$x[1:429,1:3]))
+train_data_t18_all <- as.data.frame(cbind(spread_df_all[1:426,],recessions[19:444,2],pca_spreads_all$x[1:426,1:3]))
+train_data_t21_all  <- as.data.frame(cbind(spread_df_all[1:423,],recessions[22:444,2],pca_spreads_all$x[1:423,1:3]))
+train_data_t24_all <- as.data.frame(cbind(spread_df_all[1:420,],recessions[25:444,2],pca_spreads_all$x[1:420,1:3]))
+
+test_data_t12_all  <-as.data.frame(cbind(spread_df_all[433:684,],recessions[445:696,2],pca_spreads_all$x[433:684,1:3]))
+test_data_t15_all  <-as.data.frame(cbind(spread_df_all[430:681,],recessions[445:696,2],pca_spreads_all$x[430:681,1:3]))
+test_data_t18_all  <-as.data.frame(cbind(spread_df_all[427:678,],recessions[445:696,2],pca_spreads_all$x[427:678,1:3]))
+test_data_t21_all  <-as.data.frame(cbind(spread_df_all[424:675,],recessions[445:696,2],pca_spreads_all$x[424:675,1:3]))
+test_data_t24_all <-as.data.frame(cbind(spread_df_all[421:672,],recessions[445:696,2],pca_spreads_all$x[421:672,1:3]))
+
+
+colnames(train_data_t12_all )<- cbind("TENTOTHREE","TENTOONE","TENTOFED","ONETOFED","SIXMTOFED","THREEMTOFED","RECESSIONS","PC1","PC2","PC3")
+colnames(train_data_t15_all)<- cbind("TENTOTHREE","TENTOONE","TENTOFED","ONETOFED","SIXMTOFED","THREEMTOFED","RECESSIONS","PC1","PC2","PC3")
+colnames(train_data_t18_all )<- cbind("TENTOTHREE","TENTOONE","TENTOFED","ONETOFED","SIXMTOFED","THREEMTOFED","RECESSIONS","PC1","PC2","PC3")
+colnames(train_data_t21_all )<- cbind("TENTOTHREE","TENTOONE","TENTOFED","ONETOFED","SIXMTOFED","THREEMTOFED","RECESSIONS","PC1","PC2","PC3")
+colnames(train_data_t24_all )<- cbind("TENTOTHREE","TENTOONE","TENTOFED","ONETOFED","SIXMTOFED","THREEMTOFED","RECESSIONS","PC1","PC2","PC3")
+
+colnames(test_data_t12_all )<- cbind("TENTOTHREE","TENTOONE","TENTOFED","ONETOFED","SIXMTOFED","THREEMTOFED","RECESSIONS","PC1","PC2","PC3")
+colnames(test_data_t15_all )<- cbind("TENTOTHREE","TENTOONE","TENTOFED","ONETOFED","SIXMTOFED","THREEMTOFED","RECESSIONS","PC1","PC2","PC3")
+colnames(test_data_t18_all )<- cbind("TENTOTHREE","TENTOONE","TENTOFED","ONETOFED","SIXMTOFED","THREEMTOFED","RECESSIONS","PC1","PC2","PC3")
+colnames(test_data_t21_all )<- cbind("TENTOTHREE","TENTOONE","TENTOFED","ONETOFED","SIXMTOFED","THREEMTOFED","RECESSIONS","PC1","PC2","PC3")
+colnames(test_data_t24_all )<- cbind("TENTOTHREE","TENTOONE","TENTOFED","ONETOFED","SIXMTOFED","THREEMTOFED","RECESSIONS","PC1","PC2","PC3")
+```
+
+```{r}
+####### TESTS WITH THRESHOLD = 0.15, SELECTED LONG SPREAD DATA
+
+####### MODEL TEN TO THREE AND TEN TO ONE YEAR SPREADS
+
+log_model_t12_tenspread <- glm(RECESSIONS ~ TENTOTHREE + TENTOONE, data= train_data_t12, family=binomial)
+summary(log_model_t12_tenspread)
+
+prediction_log_model_t12_tenspread <- ifelse(predict(log_model_t12_tenspread, test_data_t12, type="response") >= 0.15, 1, 0)
+roc_log_model_t12_tenspread <- roc(recessions[445:696,2], prediction_log_model_t12_tenspread)
+auc(roc_log_model_t12_tenspread) ##### area under the curve of the model:  0.719
+plot(roc_log_model_t12_tenspread)
+```
+
+```{r}
+confusion_matrix_t12_tenspread <- confusionMatrix(as.factor(prediction_log_model_t12_tenspread), as.factor(recessions[445:696,2]), positive="1")
+print(confusion_matrix_t12_tenspread) ##### confusion matrix of the model
+```
+
+```{r}
+log_model_t15_tenspread  <- glm(RECESSIONS ~ TENTOTHREE + TENTOONE, data= train_data_t15, family=binomial)
+summary(log_model_t15_tenspread)
+
+prediction_log_model_t15_tenspread  <- ifelse(predict(log_model_t15_tenspread, test_data_t15, type="response") >= 0.15, 1, 0)
+roc_log_model_t15_tenspread  <- roc(recessions[445:696,2], prediction_log_model_t15_tenspread)
+auc(roc_log_model_t15_tenspread) ##### area under the curve of the model: 0.7634
+plot(roc_log_model_t15_tenspread)
+```
+
+```{r}
+confusion_matrix_t15_tenspread <- confusionMatrix(as.factor(prediction_log_model_t15_tenspread), as.factor(recessions[445:696,2]), positive="1")
+print(confusion_matrix_t15_tenspread) ##### confusion matrix of the model
+```
+
+```{r}
+log_model_t18_tenspread  <- glm(RECESSIONS ~ TENTOTHREE + TENTOONE, data= train_data_t18, family=binomial)
+summary(log_model_t18_tenspread)
+
+prediction_log_model_t18_tenspread  <- ifelse(predict(log_model_t18_tenspread, test_data_t18, type="response") >= 0.15, 1, 0)
+roc_log_model_t18_tenspread  <- roc(recessions[445:696,2], prediction_log_model_t18_tenspread)
+auc(roc_log_model_t18_tenspread) ##### area under the curve of the model: 0.7931
+plot(roc_log_model_t18_tenspread)
+```
+
+```{r}
+confusion_matrix_t18_tenspread <- confusionMatrix(as.factor(prediction_log_model_t18_tenspread), as.factor(recessions[445:696,2]), positive="1")
+print(confusion_matrix_t18_tenspread) ##### confusion matrix of the model
+```
+
+```{r}
+log_model_t21_tenspread  <- glm(RECESSIONS ~ TENTOTHREE + TENTOONE, data= train_data_t21, family=binomial)
+summary(log_model_t21_tenspread)
+
+prediction_log_model_t21_tenspread  <- ifelse(predict(log_model_t21_tenspread, test_data_t21, type="response") >= 0.15, 1, 0)
+roc_log_model_t21_tenspread  <- roc(recessions[445:696,2], prediction_log_model_t21_tenspread)
+auc(roc_log_model_t21_tenspread) ##### area under the curve of the model: 0.7798
+plot(roc_log_model_t21_tenspread) 
+```
+
+```{r}
+confusion_matrix_t21_tenspread <- confusionMatrix(as.factor(prediction_log_model_t21_tenspread), as.factor(recessions[445:696,2]), positive="1")
+print(confusion_matrix_t21_tenspread)##### confusion matrix of the model
+```
+
+```{r}
+log_model_t24_tenspread  <- glm(RECESSIONS ~ TENTOTHREE + TENTOONE, data= train_data_t24, family=binomial)
+summary(log_model_t24_tenspread)
+
+prediction_log_model_t24_tenspread  <- ifelse(predict(log_model_t24_tenspread, test_data_t24, type="response") >= 0.15, 1, 0)
+roc_log_model_t24_tenspread  <- roc(recessions[445:696,2], prediction_log_model_t24_tenspread)
+auc(roc_log_model_t24_tenspread) ##### area under the curve of the model:  0.74
+plot(roc_log_model_t24_tenspread)
+```
+
+```{r}
+confusion_matrix_t24_tenspread <- confusionMatrix(as.factor(prediction_log_model_t24_tenspread), as.factor(recessions[445:696,2]), positive="1")
+print(confusion_matrix_t24_tenspread) ##### confusion matrix of the model
+```
+
+```{r}
+####### MODEL TEN TO THREE AND TEN TO ONE YEARS SPREADS, COUPLED WITH TEN YEAR TO FED RATE SPREAD
+
+log_model_t12 <- glm(RECESSIONS ~ ., data= train_data_t12, family=binomial)
+summary(log_model_t12)
+
+prediction_log_model_t12 <- ifelse(predict(log_model_t12, test_data_t12, type="response") >= 0.15, 1, 0)
+roc_log_model_t12 <- roc(recessions[445:696,2], prediction_log_model_t12)
+auc(roc_log_model_t12) ##### area under the curve of the model: 0.7257
+plot(roc_log_model_t12)
+```
+
+```{r}
+confusion_matrix_t12 <- confusionMatrix(as.factor(prediction_log_model_t12), as.factor(recessions[445:696,2]), positive="1")
+print(confusion_matrix_t12) ##### confusion matrix of the model
+```
+
+```{r}
+log_model_t15 <- glm(RECESSIONS ~ ., data= train_data_t15, family=binomial)
+summary(log_model_t15)
+
+prediction_log_model_t15 <- ifelse(predict(log_model_t15, test_data_t15, type="response") >= 0.15, 1, 0)
+roc_log_model_t15 <- roc(recessions[445:696,2], prediction_log_model_t15)
+auc(roc_log_model_t15) ##### area under the curve of the model: 0.8085
+plot(roc_log_model_t15)
+```
+
+```{r}
+confusion_matrix_t15 <- confusionMatrix(as.factor(prediction_log_model_t15), as.factor(recessions[445:696,2]), positive="1")
+print(confusion_matrix_t15) ##### confusion matrix of the model
+```
+
+```{r}
+log_model_t18 <- glm(RECESSIONS ~ ., data= train_data_t18, family=binomial)
+summary(log_model_t18)
+
+prediction_log_model_t18 <- ifelse(predict(log_model_t18, test_data_t18, type="response") >= 0.15, 1, 0)
+roc_log_model_t18 <- roc(recessions[445:696,2], prediction_log_model_t18)
+auc(roc_log_model_t18) ##### area under the curve of the model: 0.7953
+plot(roc_log_model_t18)
+```
+
+```{r}
+confusion_matrix_t18 <- confusionMatrix(as.factor(prediction_log_model_t18), as.factor(recessions[445:696,2]), positive="1")
+print(confusion_matrix_t18) ##### confusion matrix of the model
+```
+
+```{r}
+log_model_t21 <- glm(RECESSIONS ~ ., data= train_data_t21, family=binomial)
+summary(log_model_t21)
+
+prediction_log_model_t21 <- ifelse(predict(log_model_t21, test_data_t21, type="response") >= 0.15, 1, 0)
+roc_log_model_t21 <- roc(recessions[445:696,2], prediction_log_model_t21)
+auc(roc_log_model_t21) ##### area under the curve of the model: 0.782
+plot(roc_log_model_t21)
+```
+
+```{r}
+confusion_matrix_t21 <- confusionMatrix(as.factor(prediction_log_model_t21), as.factor(recessions[445:696,2]), positive="1")
+print(confusion_matrix_t21) ##### confusion matrix of the model
+```
+
+```{r}
+log_model_t24 <- glm(RECESSIONS ~ ., data= train_data_t24, family=binomial)
+summary(log_model_t24)
+
+prediction_log_model_t24 <- ifelse(predict(log_model_t24, test_data_t24, type="response") >= 0.15, 1, 0)
+roc_log_model_t24 <- roc(recessions[445:696,2], prediction_log_model_t24)
+auc(roc_log_model_t24) ##### area under the curve of the model: 0.72
+plot(roc_log_model_t24)
+```
+
+```{r}
+confusion_matrix_t24 <- confusionMatrix(as.factor(prediction_log_model_t24), as.factor(recessions[445:696,2]), positive="1")
+print(confusion_matrix_t24) ##### confusion matrix of the model
+```
+
+```{r}
+####### MODEL WITH ALL AVAILABLE SPREAD RATES IN OUR DATA SET, EXCLUDING THE RATES WE CRAFTED FROM FED SPREADS 
+
+log_model_t12_all <- glm(RECESSIONS ~ TENTOTHREE + TENTOONE + TENTOFED + ONETOFED + SIXMTOFED + THREEMTOFED, data= train_data_t12_all, family=binomial)
+summary(log_model_t12_all)
+
+prediction_log_model_t12_all <- ifelse(predict(log_model_t12_all, test_data_t12_all, type="response") >= 0.15, 1, 0)
+roc_log_model_t12_all <- roc(recessions[445:696,2], prediction_log_model_t12_all)
+auc(roc_log_model_t12_all) ##### area under the curve of the model:  0.736
+plot(roc_log_model_t12_all)
+```
+
+```{r}
+confusion_matrix_all_t12 <- confusionMatrix(as.factor(prediction_log_model_t12_all), as.factor(recessions[445:696,2]), positive="1")
+print(confusion_matrix_all_t12) ##### confusion matrix of the model
+```
+
+```{r}
+log_model_t15_all <- glm(RECESSIONS ~ TENTOTHREE + TENTOONE + TENTOFED + ONETOFED + SIXMTOFED + THREEMTOFED, data= train_data_t15_all, family=binomial)
+summary(log_model_t15_all)
+
+prediction_log_model_t15_all <- ifelse(predict(log_model_t15_all, test_data_t15_all, type="response") >= 0.15, 1, 0)
+roc_log_model_t15_all <- roc(recessions[445:696,2], prediction_log_model_t15_all)
+auc(roc_log_model_t15_all) ##### area under the curve of the model: 0.7915
+plot(roc_log_model_t15_all)
+```
+
+```{r}
+confusion_matrix_all_t15 <- confusionMatrix(as.factor(prediction_log_model_t15_all), as.factor(recessions[445:696,2]), positive="1")
+print(confusion_matrix_all_t15) ##### confusion matrix of the model
+```
+
+```{r}
+log_model_t18_all <- glm(RECESSIONS ~ TENTOTHREE + TENTOONE + TENTOFED + ONETOFED + SIXMTOFED + THREEMTOFED, data= train_data_t18_all, family=binomial)
+summary(log_model_t18_all)
+
+prediction_log_model_t18_all <- ifelse(predict(log_model_t18_all, test_data_t18_all, type="response") >= 0.15, 1, 0)
+roc_log_model_t18_all <- roc(recessions[445:696,2], prediction_log_model_t18_all)
+auc(roc_log_model_t18_all) ##### area under the curve of the model:   0.7982
+plot(roc_log_model_t18_all)
+```
+
+```{r}
+confusion_matrix_all_t18 <- confusionMatrix(as.factor(prediction_log_model_t18_all), as.factor(recessions[445:696,2]), positive="1")
+print(confusion_matrix_all_t18) ##### confusion matrix of the model
+```
+
+```{r}
+log_model_t21_all <- glm(RECESSIONS ~ TENTOTHREE + TENTOONE + TENTOFED + ONETOFED + SIXMTOFED + THREEMTOFED, data= train_data_t21_all, family=binomial)
+summary(log_model_t21_all)
+
+prediction_log_model_t21_all <- ifelse(predict(log_model_t21_all, test_data_t21_all, type="response") >= 0.15, 1, 0)
+roc_log_model_t21_all <- roc(recessions[445:696,2], prediction_log_model_t21_all)
+auc(roc_log_model_t21_all) ##### area under the curve of the model:   0.813
+plot(roc_log_model_t21_all)
+```
+
+```{r}
+confusion_matrix_all_t21 <- confusionMatrix(as.factor(prediction_log_model_t21_all), as.factor(recessions[445:696,2]), positive="1")
+print(confusion_matrix_all_t21) ##### confusion matrix of the model
+```
+
+```{r}
+log_model_t24_all <- glm(RECESSIONS ~ TENTOTHREE + TENTOONE + TENTOFED + ONETOFED + SIXMTOFED + THREEMTOFED, data= train_data_t24_all, family=binomial)
+summary(log_model_t24_all)
+
+prediction_log_model_t24_all <- ifelse(predict(log_model_t24_all, test_data_t24_all, type="response") >= 0.15, 1, 0)
+roc_log_model_t24_all <- roc(recessions[445:696,2], prediction_log_model_t24_all)
+auc(roc_log_model_t24_all) ##### area under the curve of the model:  0.669
+plot(roc_log_model_t24_all)
+```
+
+```{r}
+confusion_matrix_all_t24 <- confusionMatrix(as.factor(prediction_log_model_t24_all), as.factor(recessions[445:696,2]), positive="1")
+print(confusion_matrix_all_t24) ##### confusion matrix of the model
+```
+
+```{r}
+####### PCA MODEL WITH ALL AVAILABLE SPREAD RATES IN OUR DATA SET, EXCLUDING THE RATES WE CRAFTED FROM FED SPREADS 
+
+log_model_t12_all_PC <- glm(RECESSIONS ~ PC1 + PC2 + PC3, data= train_data_t12_all, family=binomial)
+summary(log_model_t12_all_PC)
+
+prediction_log_model_t12_all_PC <- ifelse(predict(log_model_t12_all_PC, test_data_t12_all, type="response") >= 0.15, 1, 0)
+roc_log_model_t12_all_PC <- roc(recessions[445:696,2], prediction_log_model_t12_all_PC)
+auc(roc_log_model_t12_all_PC) ##### area under the curve of the model:    0.7405
+plot(roc_log_model_t12_all_PC)
+```
+
+```{r}
+confusion_matrix_all_PC_t12 <- confusionMatrix(as.factor(prediction_log_model_t12_all_PC), as.factor(recessions[445:696,2]), positive="1")
+print(confusion_matrix_all_PC_t12) ##### confusion matrix of the model
+```
+
+```{r}
+log_model_t15_all_PC <- glm(RECESSIONS ~ PC1 + PC2 + PC3, data= train_data_t15_all, family=binomial)
+summary(log_model_t15_all_PC)
+
+prediction_log_model_t15_all_PC <- ifelse(predict(log_model_t15_all_PC, test_data_t15_all, type="response") >= 0.15, 1, 0)
+roc_log_model_t15_all_PC <- roc(recessions[445:696,2], prediction_log_model_t15_all_PC)
+auc(roc_log_model_t15_all_PC) ##### area under the curve of the model:  0.759
+plot(roc_log_model_t15_all_PC)
+```
+
+```{r}
+confusion_matrix_all_PC_t15 <- confusionMatrix(as.factor(prediction_log_model_t15_all_PC), as.factor(recessions[445:696,2]), positive="1")
+print(confusion_matrix_all_PC_t15) ##### confusion matrix of the model
+```
+
+```{r}
+log_model_t18_all_PC <- glm(RECESSIONS ~ PC1 + PC2 + PC3, data= train_data_t18_all, family=binomial)
+summary(log_model_t18_all_PC)
+
+prediction_log_model_t18_all_PC <- ifelse(predict(log_model_t18_all_PC, test_data_t18_all, type="response") >= 0.15, 1, 0)
+roc_log_model_t18_all_PC <- roc(recessions[445:696,2], prediction_log_model_t18_all_PC)
+auc(roc_log_model_t18_all_PC) ##### area under the curve of the model: 0.776
+plot(roc_log_model_t18_all_PC)
+```
+
+```{r}
+confusion_matrix_all_PC_t18 <- confusionMatrix(as.factor(prediction_log_model_t18_all_PC), as.factor(recessions[445:696,2]), positive="1")
+print(confusion_matrix_all_PC_t18) ##### confusion matrix of the model
+```
+
+```{r}
+log_model_t21_all_PC <- glm(RECESSIONS ~ PC1 + PC2 + PC3, data= train_data_t21_all, family=binomial)
+summary(log_model_t21_all_PC)
+
+prediction_log_model_t21_all_PC <- ifelse(predict(log_model_t21_all_PC, test_data_t21_all, type="response") >= 0.15, 1, 0)
+roc_log_model_t21_all_PC <- roc(recessions[445:696,2], prediction_log_model_t21_all_PC)
+auc(roc_log_model_t21_all_PC) ##### area under the curve of the model: 0.7716
+plot(roc_log_model_t21_all_PC)
+```
+
+```{r}
+confusion_matrix_all_PC_t21 <- confusionMatrix(as.factor(prediction_log_model_t21_all_PC), as.factor(recessions[445:696,2]), positive="1")
+print(confusion_matrix_all_PC_t21) ##### confusion matrix of the model
+```
+
+```{r}
+log_model_t24_all_PC <- glm(RECESSIONS ~ PC1 + PC2 + PC3, data= train_data_t24_all, family=binomial)
+summary(log_model_t24_all_PC)
+
+prediction_log_model_t24_all_PC <- ifelse(predict(log_model_t24_all_PC, test_data_t24_all, type="response") >= 0.15, 1, 0)
+roc_log_model_t24_all_PC <- roc(recessions[445:696,2], prediction_log_model_t24_all_PC)
+auc(roc_log_model_t24_all_PC) ##### area under the curve of the model:  0.7805
+plot(roc_log_model_t24_all_PC)
+```
+
+```{r}
+confusion_matrix_all_PC_t24 <- confusionMatrix(as.factor(prediction_log_model_t24_all_PC), as.factor(recessions[445:696,2]), positive="1")
+print(confusion_matrix_all_PC_t24) ##### confusion matrix of the model
+```
+
+

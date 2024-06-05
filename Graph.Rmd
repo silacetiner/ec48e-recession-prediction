@@ -1,0 +1,144 @@
+---
+title: "graphs"
+author: "silacetiner & bulentcansolakari"
+date: "2024-06-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+install.packages("ggplot2")
+install.packages("dplyr")
+install.packages("tidyr")
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+```
+
+```{r}
+one_year_monthly_all <- read.csv("1year_monthly_all.csv")
+three_year_monthly_all <- read.csv("3year_monthly_all.csv")
+ten_year_monthly_all <- read.csv("10year_monthly_all.csv")
+tenyear_fed_spread <- read.csv("T10YFF_all.csv")
+one_year_fed_spread <- read.csv("1year_monthly_fed_all.csv")
+six_month_fed_spread <- read.csv("6month_monthly_fed_all.csv")
+three_month_fed_spread <- read.csv("3month_monthly_fed_all.csv")
+recessions <- read.csv("USREC_ALL.csv")
+
+
+ten_to_three_spread <- ten_year_monthly_all[,2] - three_year_monthly_all[,2]
+ten_to_one_spread <- ten_year_monthly_all[,2] - one_year_monthly_all[,2]
+
+
+spread_df <- data.frame(
+  Ten_to_Three_Spread = ten_to_three_spread,
+  Ten_to_One_Spread = ten_to_one_spread,
+  Ten_to_FED = tenyear_fed_spread[,2]
+)
+
+spread_df_all <- data.frame(
+  One_Year_To_Fed  = one_year_fed_spread[,2],
+  Six_Month_to_Fed = six_month_fed_spread[,2],
+  Three_Month_to_Fed = three_month_fed_spread[,2],
+  Ten_to_Three_Year = ten_to_three_spread,
+  Ten_to_One_Year = ten_to_one_spread,
+  Ten_Year_to_Fed = tenyear_fed_spread[,2]
+)
+
+
+one_year_monthly_all <- one_year_monthly_all %>% rename(Date = DATE, Yield = DGS1) %>% mutate(Term = "1 Year")
+three_year_monthly_all <- three_year_monthly_all %>% rename(Date = DATE, Yield = DGS3) %>% mutate(Term = "3 Year")
+ten_year_monthly_all <- ten_year_monthly_all %>% rename(Date = DATE, Yield = DGS10) %>% mutate(Term = "10 Year")
+
+combined_data <- bind_rows(one_year_monthly_all, three_year_monthly_all, ten_year_monthly_all)
+combined_data$Date <- as.Date(combined_data$Date)
+
+
+recessions <- recessions %>%
+  mutate(DATE = as.Date(DATE))
+
+recessions <- recessions %>%
+  mutate(start = if_else(USREC == 1 & lag(USREC, default = 0) == 0, DATE, as.Date(NA)),
+         end = if_else(USREC == 1 & lead(USREC, default = 0) == 0, DATE, as.Date(NA)))
+
+recession_periods <- recessions %>%
+  filter(!is.na(start) | !is.na(end)) %>%
+  select(start, end) %>%
+  fill(start, .direction = "down") %>%
+  filter(!is.na(end))
+
+```
+
+```{r}
+ggplot(combined_data, aes(x = Date, y = Yield, color = Term)) +
+  geom_line(size = 1) +
+  labs(title = "Monthly Average Treasury Yields",
+       x = "Date",
+       y = "Yield (%)",
+       color = "Term") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5))
+
+
+```
+GRAPH 1
+```{r}
+ggplot(combined_data, aes(x = Date, y = Yield, color = Term)) +
+  geom_line(size = 1) +
+  labs(title = "Monthly Average Treasury Yields",
+       x = "Date",
+       y = "Yield (%)",
+       color = "Term") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5)) +
+  geom_rect(data = recession_periods, aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf), 
+            fill = "grey", alpha = 0.5, inherit.aes = FALSE)
+```
+GRAPH 2
+```{r}
+ten_to_three_spread_df <- data.frame(Date = tenyear_fed_spread$DATE, Spread = ten_to_three_spread, Term = "10-3 Year Spread")
+ten_to_one_spread_df <- data.frame(Date = tenyear_fed_spread$DATE, Spread = ten_to_one_spread, Term = "10-1 Year Spread")
+tenyear_fed_spread_df <- data.frame(Date = tenyear_fed_spread$DATE, Spread = tenyear_fed_spread$T10YFF, Term = "10 Year Fed Spread")
+
+combined_spread_data <- bind_rows(ten_to_three_spread_df, ten_to_one_spread_df, tenyear_fed_spread_df)
+combined_spread_data$Date <- as.Date(combined_spread_data$Date)
+
+ggplot(combined_spread_data, aes(x = Date, y = Spread, color = Term)) +
+  geom_line(size = 1) +
+  labs(title = "Treasury Yield Spreads",
+       x = "Date",
+       y = "Spread (%)",
+       color = "Term") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5)) +
+  geom_rect(data = recession_periods, aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf), 
+            fill = "grey", alpha = 0.5, inherit.aes = FALSE)
+```
+GRAPH 3
+```{r}
+start_date <- as.Date("1962-01-01")
+date_sequence <- seq.Date(from = start_date, by = "month", length.out = nrow(spread_df_all))
+
+spread_df_all <- spread_df_all %>%
+  mutate(Date = date_sequence)
+
+spread_df_long <- spread_df_all %>%
+  pivot_longer(cols = -Date, names_to = "Spread_Type", values_to = "Spread")
+
+ggplot(spread_df_long, aes(x = Date, y = Spread, color = Spread_Type)) +
+  geom_line(size = 1) +
+  labs(title = "Treasury Yield Spreads",
+       x = "Date",
+       y = "Spread (%)",
+       color = "Spread Type") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5)) +
+  geom_rect(data = recession_periods, aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf), 
+            fill = "grey", alpha = 0.5, inherit.aes = FALSE)
+
+```
+GRAPH 4
